@@ -301,6 +301,38 @@
 			<version>${springdoc.version}</version>
 		</dependency>
 
+		<!-- ─── JWT (JSON WEB TOKEN) LIBRARY ──────────────────────────── -->
+		<!--
+		  JJWT (io.jsonwebtoken) is the most popular JWT library for Java.
+		  It provides:
+		  • Token creation with HMAC-SHA256 or RSA signing
+		  • Token parsing with automatic signature verification
+		  • Claims extraction (subject, roles, expiration)
+		  • Comprehensive exception hierarchy for validation errors
+
+		  Three artifacts required:
+		  • jjwt-api: compile-time API interfaces
+		  • jjwt-impl: runtime implementation (hidden from your code)
+		  • jjwt-jackson: JSON serialization using Jackson (already in classpath via Spring Web)
+		-->
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-api</artifactId>
+			<version>0.12.6</version>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-impl</artifactId>
+			<version>0.12.6</version>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-jackson</artifactId>
+			<version>0.12.6</version>
+			<scope>runtime</scope>
+		</dependency>
+
 		<!-- ─── DATABASE DRIVERS ─────────────────────────────────────────── -->
 		<!--
 		  PostgreSQL JDBC driver — runtime-only dependency.

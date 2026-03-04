@@ -1,0 +1,393 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  Antigravity-EMS — Application Configuration                               ║
+# ║  Spring Boot 3.5.11 / Java 21                                              ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+#
+# WHY application.yml INSTEAD OF application.properties?
+# ──────────────────────────────────────────────────────
+# YAML provides hierarchical structure that mirrors Spring's property namespace.
+# Instead of repeating "spring.datasource.hikari.xxx" on every line, YAML nests
+# them naturally. This improves readability for complex configs (JPA, Kafka, etc.)
+# and reduces typo risk from repeated prefixes.
+#
+# ENVIRONMENT VARIABLE OVERRIDES
+# ──────────────────────────────
+# Every property below can be overridden at runtime via env vars. Spring Boot
+# uses "relaxed binding" — spring.datasource.url maps to SPRING_DATASOURCE_URL.
+# This is critical for cloud-native 12-Factor App compliance: config lives in
+# the environment, not in code/artifacts.
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  APPLICATION IDENTITY
+# ═══════════════════════════════════════════════════════════════════════════════
+spring:
+  application:
+    # Application name used by:
+    # • Actuator /info endpoint
+    # • Kafka client IDs (for broker-side tracking)
+    # • Distributed tracing (Zipkin/Jaeger span names)
+    # • Spring Cloud service discovery (Eureka/Consul)
+    name: antigravity-ems
+
+  # ═════════════════════════════════════════════════════════════════════════════
+  #  VIRTUAL THREADS — Java 21 (Project Loom)
+  # ═════════════════════════════════════════════════════════════════════════════
+  #
+  # WHY VIRTUAL THREADS ARE CRUCIAL FOR HIGH-CONCURRENCY SYSTEMS
+  # ─────────────────────────────────────────────────────────────
+  # Traditional (Platform) Threads:
+  #   • Each thread ≈ 1MB stack memory + OS kernel scheduling overhead
+  #   • Tomcat default pool = 200 threads → max 200 concurrent requests
+  #   • Thread-per-request model: if a request blocks on DB/Kafka I/O,
+  #     the thread is WASTED doing nothing, but still consuming 1MB RAM
+  #   • Under heavy load → thread pool exhaustion → 503 errors
+  #
+  # Virtual Threads (Java 21 GA):
+  #   • Lightweight (~1KB per thread), managed by JVM, not the OS kernel
+  #   • Millions of virtual threads can exist concurrently
+  #   • When a virtual thread blocks (DB query, HTTP call, Kafka send),
+  #     it "unmounts" from the carrier thread, freeing it for other work
+  #   • No thread pool tuning needed — create a new virtual thread per request
+  #
+  # IMPACT ON THIS EMS APPLICATION:
+  #   • Employee search with JPA → blocks on PostgreSQL → virtual thread unmounts
+  #   • Kafka event publishing → blocks on broker ack → virtual thread unmounts
+  #   • REST calls to external services → blocks on network → virtual thread unmounts
+  #   • Result: 10x–100x more concurrent requests with LESS memory
+  #
+  # WHAT THIS SETTING DOES:
+  #   When enabled, Spring Boot 3.2+ configures:
+  #   1. Tomcat to use virtual threads for HTTP request handling
+  #   2. Spring MVC async support backed by virtual threads
+  #   3. @Async methods execute on virtual threads
+  #   4. Spring Task scheduling uses virtual threads
+  #
+  # CAUTION:
+  #   • Avoid synchronized blocks in hot paths — they "pin" the carrier thread
+  #   • Use ReentrantLock instead of synchronized for I/O-bound critical sections
+  #   • Monitor with -Djdk.tracePinnedThreads=short to detect pinning
+  #
+  threads:
+    virtual:
+      enabled: true
+
+  # ═════════════════════════════════════════════════════════════════════════════
+  #  DATASOURCE — PostgreSQL Connection
+  # ═════════════════════════════════════════════════════════════════════════════
+  #
+  # Uses environment variable placeholders for 12-Factor compliance.
+  # In production, inject via K8s Secrets, Docker env, or .env files.
+  # Fallback defaults are provided for local development.
+  #
+  datasource:
+    # JDBC URL format: jdbc:postgresql://host:port/database
+    # The default points to a local PostgreSQL instance.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/antigravity_ems}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+
+    # ─── HikariCP Connection Pool ──────────────────────────────────────
+    # HikariCP is Spring Boot's default JDBC pool — fastest available.
+    # With Virtual Threads, we can afford MORE connections because each
+    # virtual thread consumes negligible memory while waiting for a query.
+    hikari:
+      # Maximum pool size: should match your PostgreSQL max_connections / num_pods
+      # Rule of thumb: connections = (2 * CPU_cores) + disk_spindles
+      # For cloud (no spindles): connections ≈ 2 * vCPU_cores + 5
+      maximum-pool-size: ${HIKARI_MAX_POOL_SIZE:20}
+
+      # Minimum idle connections kept alive (set equal to max for stable perf)
+      minimum-idle: ${HIKARI_MIN_IDLE:5}
+
+      # Connection timeout: how long to wait for a connection from the pool
+      connection-timeout: 30000  # 30 seconds
+
+      # Idle timeout: how long an idle connection stays in the pool
+      idle-timeout: 600000  # 10 minutes
+
+      # Max lifetime: connections are recycled before PostgreSQL's timeout
+      max-lifetime: 1800000  # 30 minutes
+
+      # Pool name for metrics/logging identification
+      pool-name: antigravity-ems-pool
+
+  # ═════════════════════════════════════════════════════════════════════════════
+  #  JPA / HIBERNATE — ORM Configuration
+  # ═════════════════════════════════════════════════════════════════════════════
+  jpa:
+    # Use PostgreSQL-optimized SQL dialect for:
+    # • Proper SERIAL/IDENTITY column generation
+    # • PostgreSQL-specific functions (JSONB, arrays, etc.)
+    # • Optimal pagination queries (LIMIT/OFFSET vs ROW_NUMBER)
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+
+    hibernate:
+      # DDL strategy:
+      # • "validate" (PRODUCTION): only validates schema matches entities,
+      #   never modifies tables. Use Flyway/Liquibase for migrations.
+      # • "update" (DEV ONLY): auto-alters tables — NEVER in production!
+      # • "create-drop": recreates on startup — for tests only
+      ddl-auto: ${JPA_DDL_AUTO:validate}
+
+    # Show SQL queries in logs (disable in production for performance)
+    show-sql: ${JPA_SHOW_SQL:false}
+
+    properties:
+      hibernate:
+        # Format SQL for readability in dev logs
+        '[format_sql]': true
+
+        # Batch inserts/updates for bulk operations (significant perf gain)
+        # When creating multiple employees at once, Hibernate batches INSERTs
+        # into groups of 25, reducing database round-trips.
+        '[jdbc.batch_size]': 25
+
+        # Order inserts/updates to maximize batch efficiency
+        '[order_inserts]': true
+        '[order_updates]': true
+
+        # Enable second-level cache for read-heavy entities (e.g., departments)
+        # Requires a cache provider (EhCache, Hazelcast, Redis)
+        # cache:
+        #   use_second_level_cache: true
+        #   region.factory_class: org.hibernate.cache.jcache.JCacheRegionFactory
+
+    # Disable Open Session in View (OSIV) anti-pattern:
+    # • With OSIV enabled, Hibernate sessions stay open during view rendering,
+    #   risking lazy-loading N+1 queries in controllers/templates.
+    # • Disabling forces explicit eager fetching in the service layer,
+    #   which aligns with the Single Responsibility Principle — the service
+    #   layer controls the data loading strategy, not the view layer.
+    open-in-view: false
+
+  # ═════════════════════════════════════════════════════════════════════════════
+  #  KAFKA — Event Streaming Configuration
+  # ═════════════════════════════════════════════════════════════════════════════
+  #
+  # Kafka enables event-driven architecture following the Open/Closed Principle:
+  # • When an Employee is created, the service publishes an "employee.created" event
+  # • New consumers (notification, audit, analytics) subscribe WITHOUT modifying
+  #   the Employee service code — the system is open for extension, closed for modification
+  #
+  kafka:
+    # Kafka broker address (comma-separated for clusters)
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    # ─── Producer Configuration ────────────────────────────────────────
+    producer:
+      # Unique client ID for broker-side tracking and monitoring
+      client-id: ${spring.application.name}-producer
+
+      # Key serializer: String keys for topic partitioning (e.g., employee ID)
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+      # Value serializer: JSON serialization via Spring's JsonSerializer
+      # Automatically serializes DTOs/Events to JSON using Jackson
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+      # Acknowledgment mode:
+      # • "all" (-1): Leader AND all replicas must acknowledge the write
+      # • Strongest durability guarantee — no data loss on broker failure
+      acks: all
+
+      # Retry configuration for transient failures (network blips, leader election)
+      retries: 3
+
+    # ─── Consumer Configuration ────────────────────────────────────────
+    consumer:
+      # Consumer group ID: all instances of this app share the same group,
+      # Kafka distributes partitions across instances for load balancing
+      group-id: ${spring.application.name}-group
+
+      # Key deserializer: String keys matching the producer
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+      # Value deserializer: JSON deserialization with trusted packages
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+
+      # Start from the earliest unprocessed offset on first join
+      auto-offset-reset: earliest
+
+      properties:
+        # Trust our application's package for JSON deserialization
+        # Without this, Spring Kafka rejects deserialization for security
+        '[spring.json.trusted.packages]': com.java.practice.ems.*
+
+  # ═════════════════════════════════════════════════════════════════════════════
+  #  SECURITY — Spring Security & OAuth2 Resource Server
+  # ═════════════════════════════════════════════════════════════════════════════
+  #
+  # Stateless JWT authentication following Dependency Inversion Principle:
+  # • Controllers depend on SecurityContext (abstraction), not on any
+  #   specific auth mechanism (JWT, session, API key)
+  # • The security filter chain is configured in a @Configuration class,
+  #   decoupled from business logic
+  #
+  # ─── OAuth2 Resource Server / JWT ─────────────────────────────────────
+  # Uncomment the block below and configure for your Identity Provider:
+  #
+  # security:
+  #   oauth2:
+  #     resourceserver:
+  #       jwt:
+  #         # JWKS URI for token validation — pick ONE:
+  #         # Keycloak:  http://keycloak:8080/realms/ems/protocol/openid-connect/certs
+  #         # Auth0:     https://YOUR_DOMAIN.auth0.com/.well-known/jwks.json
+  #         # Azure AD:  https://login.microsoftonline.com/TENANT_ID/discovery/v2.0/keys
+  #         jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8080/realms/ems/protocol/openid-connect/certs}
+  #
+  #         # Or use issuer-uri for OIDC auto-discovery:
+  #         # issuer-uri: ${JWT_ISSUER_URI:http://localhost:8080/realms/ems}
+  #
+  # Until configured, Spring Security uses its default in-memory authentication.
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  SERVER CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+server:
+  # Application port — override with SERVER_PORT env var in production
+  port: ${SERVER_PORT:8080}
+
+  # Servlet context path: all endpoints prefixed with /api
+  # e.g., /api/employees, /api/departments, /api/actuator/health
+  servlet:
+    context-path: /api
+
+  # ─── Tomcat Tuning (with Virtual Threads) ─────────────────────────────
+  # With Virtual Threads enabled, Tomcat's thread limits become less critical
+  # because virtual threads are almost free to create. However, these settings
+  # still control the carrier thread pool (OS threads that execute virtual threads).
+  tomcat:
+    # Max connections: total simultaneous connections Tomcat accepts
+    max-connections: ${TOMCAT_MAX_CONNECTIONS:8192}
+
+    # Accept count: queue size when all connections are busy
+    accept-count: ${TOMCAT_ACCEPT_COUNT:100}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  ACTUATOR — Production Monitoring & Health Checks
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Actuator endpoints are essential for cloud-native deployment:
+# • Kubernetes liveness probe → /api/actuator/health/liveness
+# • Kubernetes readiness probe → /api/actuator/health/readiness
+# • Prometheus metrics scraping → /api/actuator/prometheus
+#
+management:
+  endpoints:
+    web:
+      exposure:
+        # Expose only what's needed. NEVER expose "shutdown" or "env" in prod.
+        # • health: liveness/readiness for K8s probes
+        # • info: build version, git commit for debugging
+        # • metrics: JVM, HTTP, HikariCP, Kafka metrics
+        # • prometheus: Prometheus-compatible metrics export
+        include: health,info,metrics,prometheus
+
+  endpoint:
+    health:
+      # Show full health details (DB connection, Kafka broker, disk space)
+      # Set to "never" in production if health details are sensitive
+      show-details: ${ACTUATOR_HEALTH_DETAILS:when-authorized}
+
+      # Enable Kubernetes health group probes
+      probes:
+        enabled: true
+
+  # Health indicators: each checks a specific subsystem
+  health:
+    db:
+      enabled: true      # Check PostgreSQL connectivity
+    diskspace:
+      enabled: true      # Check available disk space
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  API DOCUMENTATION — SpringDoc / OpenAPI / Swagger
+# ═══════════════════════════════════════════════════════════════════════════════
+springdoc:
+  # Swagger UI accessible at: /api/swagger-ui.html
+  swagger-ui:
+    path: /swagger-ui.html
+
+    # Expand operations by default for better discoverability
+    doc-expansion: list
+
+    # Sort operations alphabetically
+    operations-sorter: alpha
+
+    # Sort tags alphabetically
+    tags-sorter: alpha
+
+  # OpenAPI JSON spec at: /api/v3/api-docs
+  api-docs:
+    path: /v3/api-docs
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  LOGGING — Structured & Contextual
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Logging follows the Single Responsibility Principle:
+# • Application code uses SLF4J (abstraction) via Lombok's @Slf4j
+# • The logging framework (Logback) is configured here, not in code
+# • In production, switch to JSON format for log aggregation (ELK/Loki)
+#
+logging:
+  level:
+    # Application root — INFO for production, DEBUG for development
+    '[com.java.practice.ems]': ${LOG_LEVEL_APP:INFO}
+
+    # Spring Security — useful for debugging auth issues
+    '[org.springframework.security]': ${LOG_LEVEL_SECURITY:WARN}
+
+    # Hibernate SQL — set to DEBUG to see generated SQL (dev only)
+    '[org.hibernate.SQL]': ${LOG_LEVEL_SQL:WARN}
+
+    # Hibernate bind parameters — shows actual values in SQL (dev only)
+    '[org.hibernate.type.descriptor.sql.BasicBinder]': ${LOG_LEVEL_SQL_PARAMS:WARN}
+
+    # Kafka — monitor broker connectivity and consumer lag
+    '[org.apache.kafka]': ${LOG_LEVEL_KAFKA:WARN}
+
+  # Log pattern: timestamp, level, thread name, logger, message
+  # Virtual thread names appear as "virtual-thread-N" for easy identification
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PROFILE-SPECIFIC CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Spring Profiles allow environment-specific configuration:
+# • application-dev.yml   → H2 database, DEBUG logging, CORS: *, ddl-auto: update
+# • application-test.yml  → H2 database, embedded Kafka, ddl-auto: create-drop
+# • application-prod.yml  → PostgreSQL, WARN logging, ddl-auto: validate
+#
+# Activate a profile via:
+#   java -jar app.jar --spring.profiles.active=dev
+#   SPRING_PROFILES_ACTIVE=prod docker run ...
+#   Kubernetes ConfigMap: SPRING_PROFILES_ACTIVE: prod
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#  SOLID PRINCIPLES IN APPLICATION CONFIGURATION
+#  ──────────────────────────────────────────────
+#  This YAML file itself demonstrates SOLID-aligned thinking:
+#
+#  • SINGLE RESPONSIBILITY: Each section (datasource, kafka, security) configures
+#    exactly ONE concern. Changes to Kafka don't affect database config.
+#
+#  • OPEN/CLOSED: Profile-specific YAML files (application-{profile}.yml) extend
+#    this base config without modifying it. Adding a "staging" environment means
+#    creating application-staging.yml — this file stays untouched.
+#
+#  • DEPENDENCY INVERSION: Properties use ${ENV_VAR:default} placeholders.
+#    The application depends on abstractions (property keys), not concrete values.
+#    The actual values are injected by the deployment environment.
+#
+# ═══════════════════════════════════════════════════════════════════════════════

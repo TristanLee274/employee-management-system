@@ -8,6 +8,8 @@ import com.java.practice.ems.employee.exception.EmployeeNotFoundException;
 import com.java.practice.ems.employee.repository.EmployeeRepository;
 import com.java.practice.ems.employee.salary.SalaryCalculator;
 import com.java.practice.ems.employee.salary.SalaryCalculatorFactory;
+import com.java.practice.ems.kafka.EmployeeEvent;
+import com.java.practice.ems.kafka.EmployeeEventProducer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -18,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.UUID;
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -149,11 +152,14 @@ public class EmployeeService {
 
     private final EmployeeRepository employeeRepository;
     private final SalaryCalculatorFactory salaryCalculatorFactory;
+    private final EmployeeEventProducer eventProducer;
 
     public EmployeeService(EmployeeRepository employeeRepository,
-            SalaryCalculatorFactory salaryCalculatorFactory) {
+            SalaryCalculatorFactory salaryCalculatorFactory,
+            EmployeeEventProducer eventProducer) {
         this.employeeRepository = employeeRepository;
         this.salaryCalculatorFactory = salaryCalculatorFactory;
+        this.eventProducer = eventProducer;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -292,6 +298,27 @@ public class EmployeeService {
         Employee saved = employeeRepository.save(employee);
 
         log.info("Employee created successfully: id={}, email={}", saved.getId(), saved.getEmail());
+
+        // ── OBSERVER PATTERN: Publish event to Kafka ─────────────────────────────
+        // After the employee is persisted in PostgreSQL (source of truth), we publish
+        // an event to Kafka. This decouples the notification/audit/analytics systems
+        // from the employee creation flow:
+        //
+        // • The employee is saved FIRST (strong consistency in PostgreSQL)
+        // • The event is published AFTER (eventual consistency for consumers)
+        // • If Kafka publish fails, the employee is still saved — the event producer
+        // handles retries asynchronously
+        //
+        // This follows the TRANSACTIONAL OUTBOX pattern at a basic level:
+        // the database write is committed before the event is published.
+        eventProducer.publishEvent(EmployeeEvent.created(
+                UUID.randomUUID().toString(),
+                saved.getId(),
+                saved.getFirstName() + " " + saved.getLastName(),
+                saved.getEmail(),
+                saved.getDepartment(),
+                saved.getJobTitle(),
+                saved.getSalary()));
 
         return EmployeeResponse.from(saved);
     }

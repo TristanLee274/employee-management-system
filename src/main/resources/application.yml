@@ -162,6 +162,33 @@ spring:
     open-in-view: false
 
   # ═════════════════════════════════════════════════════════════════════════════
+  #  MONGODB — NoSQL for Event Logs & Notifications
+  # ═════════════════════════════════════════════════════════════════════════════
+  #
+  # WHY MongoDB FOR LOGGING / NOTIFICATIONS (not PostgreSQL)?
+  # ──────────────────────────────────────────────────────────
+  # • SCHEMA FLEXIBILITY: Notification events vary in structure — employee created
+  #   events carry salary data, status change events carry old/new status, etc.
+  #   MongoDB stores each document with its own shape — no ALTER TABLE ever needed.
+  #
+  # • WRITE-OPTIMIZED: Event logging is write-heavy. MongoDB's WiredTiger engine
+  #   uses append-only B-trees optimized for sequential writes, while PostgreSQL's
+  #   MVCC model creates dead tuples on writes (requiring VACUUM).
+  #
+  # • HORIZONTAL SCALING: MongoDB shards by timestamp or employee ID automatically.
+  #   PostgreSQL sharding requires manual partitioning or external tools (Citus).
+  #
+  # • TTLS (TIME-TO-LIVE): MongoDB supports TTL indexes that auto-delete old logs
+  #   after N days — perfect for notification logs that expire. PostgreSQL requires
+  #   cron jobs or partitioned tables with DROP PARTITION.
+  #
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/antigravity_ems_events}
+      # Auto-create indexes declared via @Indexed annotations on Document classes
+      auto-index-creation: true
+
+  # ═════════════════════════════════════════════════════════════════════════════
   #  KAFKA — Event Streaming Configuration
   # ═════════════════════════════════════════════════════════════════════════════
   #

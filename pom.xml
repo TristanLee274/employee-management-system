@@ -202,6 +202,28 @@
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
 
+		<!-- ─── MONGODB (NoSQL for Event Logs & Notifications) ──────────── -->
+		<!--
+		  spring-boot-starter-data-mongodb brings:
+		  • MongoDB Java driver
+		  • Spring Data MongoDB (MongoTemplate, MongoRepository)
+		  • Auto-configuration for MongoDB connection and template beans
+
+		  WHY MongoDB FOR LOGGING/NOTIFICATIONS (not PostgreSQL)?
+		  → Notification logs have VARIABLE structure: some events carry salary
+		    data, others carry status changes, others are audit-only.
+		  → MongoDB's schema-less documents handle this naturally — no ALTER TABLE,
+		    no NULL columns, no migration scripts.
+		  → Write-heavy workloads (logging every event) benefit from MongoDB's
+		    append-optimized storage engine (WiredTiger).
+		  → Horizontal scaling: MongoDB shards automatically by event timestamp
+		    or employee ID — scale writes linearly.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-mongodb</artifactId>
+		</dependency>
+
 		<!-- ─── SECURITY ────────────────────────────────────────────────── -->
 		<!--
 		  spring-boot-starter-security brings:

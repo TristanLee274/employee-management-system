@@ -312,9 +312,11 @@ class EmployeeServiceTest {
                         // 3. Kafka event was published (Observer Pattern notification)
                         // We verify the event producer was called but don't test Kafka itself
                         // (that's an integration test concern). This is the unit boundary.
-                        verify(eventPublisher).publishEvent(argThat(event -> event.eventType().equals("CREATED") &&
-                                        event.employeeId().equals("E12345") &&
-                                        event.employeeName().equals("Jane Doe")));
+                        // Verify event matches the SAVED employee, not hardcoded values
+                        verify(eventPublisher)
+                                        .publishEvent(argThat(event -> event.eventType().equals("EMPLOYEE_CREATED") &&
+                                                        event.employeeId().equals(EMPLOYEE_ID) &&
+                                                        event.employeeName().equals(FULL_NAME)));
                 }
 
                 @Test
@@ -410,9 +412,8 @@ class EmployeeServiceTest {
                         // ── THEN ──────────────────────────────────────────────────────────
                         // "Then only phone and department should change, other fields preserved"
                         assertThat(existingEmployee.getPhone()).isEqualTo("+84-999-888-777");
-                        assertThat(existingEmployee.getDepartment().getName()).isEqualTo("Product");
+                        assertThat(existingEmployee.getDepartment().getId()).isEqualTo("DEPT-2");
                         // These fields were NOT in the update request — they must remain unchanged
-                        assertThat(existingEmployee.getFullName()).isEqualTo(FULL_NAME);
                         assertThat(existingEmployee.getFullName()).isEqualTo(FULL_NAME);
                         assertThat(existingEmployee.getEmail()).isEqualTo(EMAIL);
                         assertThat(existingEmployee.getBaseSalary()).isEqualByComparingTo(SALARY);
@@ -509,10 +510,12 @@ class EmployeeServiceTest {
                         // ── WHEN ──────────────────────────────────────────────────────────
                         employeeService.deactivate(EMPLOYEE_ID);
 
-                        // ── THEN ────────────────────────────────────────────────────────── // THEN
+                        // ── THEN ──────────────────────────────────────────────────────────
                         assertThat(activeEmployee.getStatus()).isEqualTo(EmployeeStatus.INACTIVE); // State mutated
-                        verify(eventPublisher).publishEvent(argThat(event -> event.eventType().equals("DEACTIVATED") &&
-                                        event.employeeId().equals(EMPLOYEE_ID)));
+                        // Verify Observer Pattern: deactivation event published to Kafka
+                        verify(eventPublisher).publishEvent(
+                                        argThat(event -> event.eventType().equals("EMPLOYEE_DEACTIVATED") &&
+                                                        event.employeeId().equals(EMPLOYEE_ID)));
                 }
 
                 @Test

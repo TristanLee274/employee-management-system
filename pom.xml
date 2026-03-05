@@ -161,6 +161,17 @@
 		  managed by spring-boot-starter-parent's BOM.
 		-->
 		<springdoc.version>2.8.16</springdoc.version>
+
+		<!--
+		  SONARQUBE PROPERTIES — Required by docs/05_devops_process.md
+		  These configure the SonarQube Maven Plugin for static code analysis.
+		  The Jenkins pipeline calls `mvn sonar:sonar` using these properties.
+		  Override via env vars in CI: -Dsonar.host.url=https://sonar.company.com
+		-->
+		<sonar.projectKey>antigravity-ems</sonar.projectKey>
+		<sonar.projectName>Antigravity Employee Management System</sonar.projectName>
+		<sonar.java.coveragePlugin>jacoco</sonar.java.coveragePlugin>
+		<sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
 	</properties>
 
 	<!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -527,6 +538,57 @@
 						</exclude>
 					</excludes>
 				</configuration>
+			</plugin>
+
+			<!--
+			  JACOCO MAVEN PLUGIN — Code Coverage Reporting
+			  ════════════════════════════════════════════════
+			  Required by docs/05_devops_process.md for Quality Gate enforcement.
+
+			  How it works:
+			  1. prepare-agent: Instruments bytecode BEFORE tests run to track
+			     which lines/branches are executed during test execution.
+			  2. report: After tests complete, generates XML/HTML coverage reports.
+			  3. SonarQube reads the XML report to enforce coverage thresholds.
+
+			  Quality Gate criteria (from docs/05_devops_process.md):
+			  • Line coverage ≥ 80%
+			  • Branch coverage ≥ 70%
+			  • 0 critical bugs
+			  • 0 blocker vulnerabilities
+			-->
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>0.8.12</version>
+				<executions>
+					<execution>
+						<id>prepare-agent</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>test</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+
+			<!--
+			  SONARQUBE MAVEN PLUGIN — Static Code Analysis
+			  ══════════════════════════════════════════════
+			  Run via: mvn sonar:sonar -Dsonar.host.url=http://sonar:9000
+			  The Jenkins pipeline (Jenkinsfile) invokes this during the
+			  "SonarQube Analysis" stage.
+			-->
+			<plugin>
+				<groupId>org.sonarsource.scanner.maven</groupId>
+				<artifactId>sonar-maven-plugin</artifactId>
+				<version>4.0.0.4121</version>
 			</plugin>
 		</plugins>
 	</build>

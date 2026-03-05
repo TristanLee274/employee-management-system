@@ -463,14 +463,23 @@ public class EmployeeService {
         // ── Java 21 Pattern Matching for switch — guard on current status ────────
         //
         // The 'when' clause allows guarded patterns: "match this case ONLY when
-        // condition is true"
-        // This replaces nested if-else inside switch cases.
+        // condition is true". This replaces nested if-else inside switch cases.
         //
         switch (employee.getStatus()) {
             // Guard: only proceed if status is ACTIVE or PROBATION (deactivatable states)
             case ACTIVE, PROBATION -> {
                 employee.setStatus(EmployeeStatus.INACTIVE);
                 log.info("Employee id={} deactivated (was: {})", id, employee.getStatus());
+
+                // ── OBSERVER PATTERN: Publish deactivation event to Kafka ────────
+                // Following the same pattern as create(), we publish a domain event
+                // so that downstream consumers (Notification, Audit) are notified.
+                // This ensures eventual consistency across the microservices ecosystem.
+                eventPublisher.publishEvent(EmployeeEvent.deactivated(
+                        UUID.randomUUID().toString(),
+                        employee.getId(),
+                        employee.getFullName(),
+                        employee.getEmail()));
             }
             // Already inactive — idempotent operation, just warn
             case INACTIVE -> log.warn("Employee id={} is already INACTIVE, no change made", id);
@@ -482,6 +491,13 @@ public class EmployeeService {
             case ON_LEAVE -> {
                 employee.setStatus(EmployeeStatus.INACTIVE);
                 log.warn("Deactivating employee id={} who was ON_LEAVE", id);
+
+                // ── OBSERVER PATTERN: Publish event for ON_LEAVE → INACTIVE transition
+                eventPublisher.publishEvent(EmployeeEvent.deactivated(
+                        UUID.randomUUID().toString(),
+                        employee.getId(),
+                        employee.getFullName(),
+                        employee.getEmail()));
             }
         }
     }

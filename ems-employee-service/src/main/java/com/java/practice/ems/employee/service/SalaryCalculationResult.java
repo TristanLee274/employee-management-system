@@ -23,11 +23,11 @@ import java.math.BigDecimal;
  * @param hoursWorked      input hours that influenced the calculation
  */
 public record SalaryCalculationResult(
-        Long employeeId,
-        String employeeName,
-        String employmentType,
-        BigDecimal baseSalary,
-        BigDecimal netMonthlySalary,
-        BigDecimal netAnnualSalary,
-        double hoursWorked) {
+                String employeeId,
+                String employeeName,
+                String employmentType,
+                BigDecimal baseSalary,
+                BigDecimal netMonthlySalary,
+                BigDecimal netAnnualSalary,
+                double hoursWorked) {
 }

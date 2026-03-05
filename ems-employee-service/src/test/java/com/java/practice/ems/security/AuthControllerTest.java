@@ -100,7 +100,7 @@ class AuthControllerTest {
             assertThat(response.getStatusCode().value()).isEqualTo(200);
             assertThat(response.getBody()).isNotNull();
 
-            AuthResponse body = response.getBody();
+            AuthResponse body = java.util.Objects.requireNonNull(response.getBody());
             assertThat(body.accessToken()).isEqualTo(ACCESS_TOKEN);
             assertThat(body.refreshToken()).isEqualTo(REFRESH_TOKEN);
             assertThat(body.tokenType()).isEqualTo("Bearer");
@@ -132,8 +132,9 @@ class AuthControllerTest {
 
             // ── THEN ──────────────────────────────────────────────────────────
             assertThat(response.getBody()).isNotNull();
-            assertThat(response.getBody().roles()).containsExactly("ROLE_VIEWER");
-            assertThat(response.getBody().username()).isEqualTo("viewer");
+            AuthResponse viewerBody = java.util.Objects.requireNonNull(response.getBody());
+            assertThat(viewerBody.roles()).containsExactly("ROLE_VIEWER");
+            assertThat(viewerBody.username()).isEqualTo("viewer");
         }
 
         @Test

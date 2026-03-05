@@ -8,8 +8,8 @@ import com.java.practice.ems.employee.exception.EmployeeNotFoundException;
 import com.java.practice.ems.employee.repository.EmployeeRepository;
 import com.java.practice.ems.employee.salary.SalaryCalculator;
 import com.java.practice.ems.employee.salary.SalaryCalculatorFactory;
+import com.java.practice.ems.employee.event.EventPublisher;
 import com.java.practice.ems.kafka.EmployeeEvent;
-import com.java.practice.ems.kafka.EmployeeEventProducer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -105,8 +105,18 @@ import java.util.UUID;
  * <li>Salary computation → {@code SalaryCalculatorFactory} + Strategy
  * implementations</li>
  * <li>HTTP concerns → Controller layer (not here)</li>
- * <li>Event publishing → Kafka producer (separate service, not here)</li>
+ * <li>Event publishing → generic {@code EventPublisher} interface (DIP
+ * enforcement)</li>
  * </ul>
+ * 
+ * <h2>OBSERVER PATTERN — KAFKA AS A DISTRIBUTED IMPLEMENTATION</h2>
+ * 
+ * <p>
+ * This class delegates the cross-service notification of events to the Observer
+ * {@code EventPublisher}. This separates state mutations (like persisting the
+ * employee) from cross-cutting integration side-effects (notifying other
+ * domains via Kafka).
+ * </p>
  */
 @Service
 @Slf4j // Lombok: generates: private static final Logger log =
@@ -123,6 +133,7 @@ import java.util.UUID;
 // read-replica setup
 // Individual write methods override with @Transactional(readOnly = false)
 // explicitly.
+@SuppressWarnings("null")
 public class EmployeeService {
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -152,14 +163,14 @@ public class EmployeeService {
 
     private final EmployeeRepository employeeRepository;
     private final SalaryCalculatorFactory salaryCalculatorFactory;
-    private final EmployeeEventProducer eventProducer;
+    private final EventPublisher eventPublisher;
 
     public EmployeeService(EmployeeRepository employeeRepository,
             SalaryCalculatorFactory salaryCalculatorFactory,
-            EmployeeEventProducer eventProducer) {
+            EventPublisher eventPublisher) {
         this.employeeRepository = employeeRepository;
         this.salaryCalculatorFactory = salaryCalculatorFactory;
-        this.eventProducer = eventProducer;
+        this.eventPublisher = eventPublisher;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -177,7 +188,8 @@ public class EmployeeService {
      * @param id the employee's primary key
      * @return the employee response DTO
      */
-    public EmployeeResponse findById(Long id) {
+    @org.springframework.security.access.prepost.PreAuthorize("#id == authentication.principal.claims['sub'] or hasRole('HR') or hasRole('ADMIN')")
+    public EmployeeResponse findById(@org.springframework.lang.NonNull String id) {
         log.debug("Fetching employee with id={}", id);
 
         return employeeRepository.findById(id)
@@ -270,6 +282,7 @@ public class EmployeeService {
      * @throws DuplicateEmailException (HTTP 409) if email already exists
      */
     @Transactional
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('HR') or hasRole('ADMIN')")
     public EmployeeResponse create(CreateEmployeeRequest request) {
         log.info("Creating employee with email={}", request.email());
 
@@ -281,17 +294,18 @@ public class EmployeeService {
             throw new DuplicateEmailException(request.email());
         }
 
-        // ── Build entity using Lombok's @Builder (fluent, readable) ──────────
+        com.java.practice.ems.employee.entity.Department deptRef = new com.java.practice.ems.employee.entity.Department();
+        deptRef.setId(request.departmentId());
+
         Employee employee = Employee.builder()
-                .firstName(request.firstName())
-                .lastName(request.lastName())
+                .fullName(request.fullName())
                 .email(request.email())
                 .phone(request.phone())
-                .department(request.department())
-                .jobTitle(request.jobTitle())
-                .salary(request.salary())
+                .department(deptRef)
+                .type(request.type())
+                .baseSalary(request.baseSalary())
                 // Hire date defaults to today if not provided in the request
-                .hireDate(request.hireDate() != null ? request.hireDate() : LocalDate.now())
+                .joinDate(request.joinDate() != null ? request.joinDate() : LocalDate.now())
                 .status(EmployeeStatus.ACTIVE) // New employees always start as ACTIVE
                 .build();
 
@@ -310,15 +324,16 @@ public class EmployeeService {
         // handles retries asynchronously
         //
         // This follows the TRANSACTIONAL OUTBOX pattern at a basic level:
-        // the database write is committed before the event is published.
-        eventProducer.publishEvent(EmployeeEvent.created(
+        // the database write is committed before // 2. Publish async event (Observer
+        // Pattern decoupled via EventPublisher interface)
+        eventPublisher.publishEvent(EmployeeEvent.created(
                 UUID.randomUUID().toString(),
                 saved.getId(),
-                saved.getFirstName() + " " + saved.getLastName(),
+                saved.getFullName(),
                 saved.getEmail(),
-                saved.getDepartment(),
-                saved.getJobTitle(),
-                saved.getSalary()));
+                saved.getDepartment() != null ? saved.getDepartment().getName() : null,
+                saved.getType() != null ? saved.getType().name() : null,
+                saved.getBaseSalary()));
 
         return EmployeeResponse.from(saved);
     }
@@ -345,27 +360,28 @@ public class EmployeeService {
      *                                   another employee
      */
     @Transactional
-    public EmployeeResponse update(Long id, UpdateEmployeeRequest request) {
+    public EmployeeResponse update(@org.springframework.lang.NonNull String id, UpdateEmployeeRequest request) {
         log.info("Updating employee id={}", id);
 
         Employee employee = employeeRepository.findById(id)
                 .orElseThrow(() -> new EmployeeNotFoundException(id));
 
         // ── Apply only non-null fields (partial update / PATCH semantics) ────
-        if (request.firstName() != null)
-            employee.setFirstName(request.firstName());
-        if (request.lastName() != null)
-            employee.setLastName(request.lastName());
+        if (request.fullName() != null)
+            employee.setFullName(request.fullName());
         if (request.phone() != null)
             employee.setPhone(request.phone());
-        if (request.department() != null)
-            employee.setDepartment(request.department());
-        if (request.jobTitle() != null)
-            employee.setJobTitle(request.jobTitle());
-        if (request.salary() != null)
-            employee.setSalary(request.salary());
-        if (request.hireDate() != null)
-            employee.setHireDate(request.hireDate());
+        if (request.departmentId() != null) {
+            com.java.practice.ems.employee.entity.Department deptRef = new com.java.practice.ems.employee.entity.Department();
+            deptRef.setId(request.departmentId());
+            employee.setDepartment(deptRef);
+        }
+        if (request.type() != null)
+            employee.setType(request.type());
+        if (request.baseSalary() != null)
+            employee.setBaseSalary(request.baseSalary());
+        if (request.joinDate() != null)
+            employee.setJoinDate(request.joinDate());
 
         // ── Email update with uniqueness re-validation ───────────────────────
         if (request.email() != null && !request.email().equals(employee.getEmail())) {
@@ -437,7 +453,8 @@ public class EmployeeService {
      * @throws EmployeeNotFoundException (HTTP 404) if not found
      */
     @Transactional
-    public void deactivate(Long id) {
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public void deactivate(@org.springframework.lang.NonNull String id) {
         log.info("Deactivating employee id={}", id);
 
         Employee employee = employeeRepository.findById(id)
@@ -460,7 +477,7 @@ public class EmployeeService {
             // Terminated employees cannot be simply deactivated — different process
             // required
             case TERMINATED -> throw new IllegalStateException(
-                    "Cannot deactivate a terminated employee (id=%d). Use the reactivation flow first.".formatted(id));
+                    "Cannot deactivate a terminated employee (id=%s). Use the reactivation flow first.".formatted(id));
             // On leave — allowed, but log the unusual state change
             case ON_LEAVE -> {
                 employee.setStatus(EmployeeStatus.INACTIVE);
@@ -509,7 +526,8 @@ public class EmployeeService {
      * @param hoursWorked    actual hours worked (or achievement % for commission)
      * @return salary calculation result DTO
      */
-    public SalaryCalculationResult calculateSalary(Long employeeId, String employmentType, double hoursWorked) {
+    public SalaryCalculationResult calculateSalary(@org.springframework.lang.NonNull String employeeId,
+            String employmentType, double hoursWorked) {
         log.debug("Calculating salary for employeeId={}, type={}, hours={}", employeeId, employmentType, hoursWorked);
 
         // Step 1: Retrieve the employee (read operation, uses read-only transaction)
@@ -517,20 +535,21 @@ public class EmployeeService {
                 .orElseThrow(() -> new EmployeeNotFoundException(employeeId));
 
         // Ensure the employee has a salary base rate configured
-        BigDecimal baseSalary = employee.getSalary();
+        BigDecimal baseSalary = employee.getBaseSalary();
         if (baseSalary == null || baseSalary.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalStateException(
-                    "Employee id=%d has no base salary configured".formatted(employeeId));
+                    "Employee id=%s has no base salary configured".formatted(employeeId));
         }
 
         // Step 2: Resolve the strategy via the factory
         // The factory returns the correct SalaryCalculator implementation based on the
         // type string.
         // The service doesn't know (or care) which concrete class this is.
+        employee.setHoursWorked(hoursWorked);
         SalaryCalculator calculator = salaryCalculatorFactory.getCalculator(employmentType);
 
         // Step 3: Delegate calculation to the strategy
-        BigDecimal netMonthly = calculator.calculate(baseSalary, hoursWorked);
+        BigDecimal netMonthly = calculator.calculate(employee);
         BigDecimal netAnnual = calculator.annualSalary(netMonthly);
 
         log.info("Salary calculated for employeeId={}: monthly={}, annual={}", employeeId, netMonthly, netAnnual);
@@ -538,7 +557,7 @@ public class EmployeeService {
         // Step 4: Return a structured result Record
         return new SalaryCalculationResult(
                 employeeId,
-                employee.getFirstName() + " " + employee.getLastName(),
+                employee.getFullName(),
                 employmentType,
                 baseSalary,
                 netMonthly,

@@ -12,6 +12,14 @@ import java.util.concurrent.CompletableFuture;
  * ║ EmployeeEventProducer — Kafka Producer (The "Subject" in Observer Pattern)║
  * ╚══════════════════════════════════════════════════════════════════════════════╝
  *
+ * <h2>DEPENDENCY INVERSION & OBSERVER PATTERN</h2>
+ *
+ * <p>
+ * This class implements the {@code EventPublisher} interface defined in the domain layer.
+ * By doing so, the domain service only depends on the abstraction (EventPublisher) and
+ * remains entirely decoupled from Spring Kafka and infrastructure concerns.
+ * </p>
+ *
  * <h2>OBSERVER PATTERN — KAFKA AS A DISTRIBUTED IMPLEMENTATION</h2>
  *
  * <p>
@@ -118,9 +126,11 @@ import java.util.concurrent.CompletableFuture;
  * slower</li>
  * </ul>
  */
+import com.java.practice.ems.employee.event.EventPublisher;
+
 @Service
 @Slf4j
-public class EmployeeEventProducer {
+public class EmployeeEventProducer implements EventPublisher {
 
     // ── Kafka topic name as a constant ──────────────────────────────────────────
     // Keeping it as a constant ensures producer and consumer always reference
@@ -155,6 +165,7 @@ public class EmployeeEventProducer {
      *
      * @param event the employee event to publish
      */
+    @Override
     public void publishEvent(EmployeeEvent event) {
         log.info("Publishing event: type={}, employeeId={}, eventId={}",
                 event.eventType(), event.employeeId(), event.eventId());
@@ -168,7 +179,7 @@ public class EmployeeEventProducer {
         // (CREATED before UPDATED before DEACTIVATED)
         CompletableFuture<SendResult<String, EmployeeEvent>> future = kafkaTemplate.send(
                 TOPIC_EMPLOYEE_EVENTS,
-                String.valueOf(event.employeeId()), // key → partition routing
+                java.util.Objects.requireNonNull(String.valueOf(event.employeeId())), // key → partition routing
                 event // value → serialized to JSON
         );
 

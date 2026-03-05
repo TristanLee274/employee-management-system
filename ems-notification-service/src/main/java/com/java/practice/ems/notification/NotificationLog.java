@@ -102,7 +102,7 @@ public class NotificationLog {
 
     @Indexed
     // Index on employeeId for queries like: "show me all events for employee #42"
-    private Long employeeId;
+    private String employeeId;
 
     // ── Employee Snapshot Data ───────────────────────────────────────────────────
     // We store a SNAPSHOT of the employee data at the time of the event.

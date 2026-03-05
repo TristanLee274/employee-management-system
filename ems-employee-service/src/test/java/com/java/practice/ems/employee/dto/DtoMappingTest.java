@@ -2,9 +2,10 @@ package com.java.practice.ems.employee.dto;
 
 import com.java.practice.ems.employee.entity.Employee;
 import com.java.practice.ems.employee.entity.EmployeeStatus;
+import com.java.practice.ems.employee.entity.Department;
 import org.junit.jupiter.api.*;
+import org.springframework.test.util.ReflectionTestUtils;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -33,23 +34,24 @@ import static org.assertj.core.api.Assertions.*;
  * </p>
  */
 @DisplayName("DTO Mapping Tests")
+@SuppressWarnings("null")
 class DtoMappingTest {
 
     private Employee createFullEmployee() {
-        return Employee.builder()
-                .id(1L)
-                .firstName("John")
-                .lastName("Doe")
+        Employee employee = Employee.builder()
+                .fullName("John Doe")
                 .email("john.doe@company.com")
                 .phone("+84-123-456-789")
-                .department("Engineering")
-                .jobTitle("Senior Developer")
-                .salary(new BigDecimal("5000.00"))
-                .hireDate(LocalDate.of(2024, 1, 15))
                 .status(EmployeeStatus.ACTIVE)
-                .createdAt(LocalDateTime.of(2024, 1, 15, 9, 0))
-                .updatedAt(LocalDateTime.of(2024, 6, 15, 14, 30))
                 .build();
+        Department dept = new Department();
+        ReflectionTestUtils.setField(dept, "id", "dept-1");
+        dept.setName("Engineering");
+        employee.setDepartment(dept);
+        ReflectionTestUtils.setField(employee, "id", "1");
+        ReflectionTestUtils.setField(employee, "createdAt", LocalDateTime.of(2024, 1, 15, 9, 0));
+        ReflectionTestUtils.setField(employee, "updatedAt", LocalDateTime.of(2024, 6, 15, 14, 30));
+        return employee;
     }
 
     @Nested
@@ -65,16 +67,13 @@ class DtoMappingTest {
             // ── WHEN ──────────────────────────────────────────────────────────
             EmployeeResponse dto = EmployeeResponse.from(entity);
 
-            // ── THEN ──────────────────────────────────────────────────────────
-            assertThat(dto.id()).isEqualTo(1L);
-            assertThat(dto.firstName()).isEqualTo("John");
-            assertThat(dto.lastName()).isEqualTo("Doe");
+            assertThat(dto.id()).isEqualTo("1");
+            assertThat(dto.fullName()).isEqualTo("John Doe");
             assertThat(dto.email()).isEqualTo("john.doe@company.com");
             assertThat(dto.phone()).isEqualTo("+84-123-456-789");
-            assertThat(dto.department()).isEqualTo("Engineering");
-            assertThat(dto.jobTitle()).isEqualTo("Senior Developer");
-            assertThat(dto.salary()).isEqualByComparingTo("5000.00");
-            assertThat(dto.hireDate()).isEqualTo(LocalDate.of(2024, 1, 15));
+            assertThat(dto.departmentName()).isEqualTo("Engineering");
+            assertThat(dto.baseSalary()).isEqualByComparingTo("5000.00");
+            assertThat(dto.joinDate()).isEqualTo(LocalDate.of(2024, 1, 15));
             assertThat(dto.status()).isEqualTo(EmployeeStatus.ACTIVE);
             assertThat(dto.createdAt()).isEqualTo(LocalDateTime.of(2024, 1, 15, 9, 0));
             assertThat(dto.updatedAt()).isEqualTo(LocalDateTime.of(2024, 6, 15, 14, 30));
@@ -84,20 +83,17 @@ class DtoMappingTest {
         @DisplayName("should handle null optional fields in entity")
         void should_HandleNullOptionalFields() {
             Employee entity = Employee.builder()
-                    .id(2L)
-                    .firstName("Jane")
-                    .lastName("Smith")
-                    .email("jane@company.com")
+                    .fullName("Jane Smith")
                     .status(EmployeeStatus.ACTIVE)
-                    .createdAt(LocalDateTime.now())
                     .build();
+            ReflectionTestUtils.setField(entity, "id", "2");
+            ReflectionTestUtils.setField(entity, "createdAt", LocalDateTime.now());
 
             EmployeeResponse dto = EmployeeResponse.from(entity);
 
-            assertThat(dto.phone()).isNull();
-            assertThat(dto.department()).isNull();
-            assertThat(dto.salary()).isNull();
-            assertThat(dto.hireDate()).isNull();
+            assertThat(dto.departmentName()).isNull();
+            assertThat(dto.baseSalary()).isNull();
+            assertThat(dto.joinDate()).isNull();
         }
 
         @Test
@@ -121,12 +117,10 @@ class DtoMappingTest {
 
             EmployeeListResponse dto = EmployeeListResponse.from(entity);
 
-            assertThat(dto.id()).isEqualTo(1L);
-            assertThat(dto.firstName()).isEqualTo("John");
-            assertThat(dto.lastName()).isEqualTo("Doe");
+            assertThat(dto.id()).isEqualTo("1");
+            assertThat(dto.fullName()).isEqualTo("John Doe");
             assertThat(dto.email()).isEqualTo("john.doe@company.com");
-            assertThat(dto.department()).isEqualTo("Engineering");
-            assertThat(dto.jobTitle()).isEqualTo("Senior Developer");
+            assertThat(dto.departmentName()).isEqualTo("Engineering");
             assertThat(dto.status()).isEqualTo(EmployeeStatus.ACTIVE);
         }
     }
@@ -139,8 +133,8 @@ class DtoMappingTest {
         @DisplayName("should normalize email to lowercase")
         void should_NormalizeEmailToLowercase() {
             CreateEmployeeRequest request = new CreateEmployeeRequest(
-                    "John", "Doe", "JOHN@COMPANY.COM", null,
-                    null, null, null, null);
+                    "John Doe", "JOHN@COMPANY.COM", null, null,
+                    null, null, null);
             assertThat(request.email()).isEqualTo("john@company.com");
         }
 
@@ -148,10 +142,9 @@ class DtoMappingTest {
         @DisplayName("should trim whitespace from name fields")
         void should_TrimWhitespaceFromNames() {
             CreateEmployeeRequest request = new CreateEmployeeRequest(
-                    "  John  ", "  Doe  ", "john@company.com", null,
-                    null, null, null, null);
-            assertThat(request.firstName()).isEqualTo("John");
-            assertThat(request.lastName()).isEqualTo("Doe");
+                    "  John Doe  ", "john@company.com", null, null,
+                    null, null, null);
+            assertThat(request.fullName()).isEqualTo("John Doe");
         }
 
         @Test
@@ -159,8 +152,8 @@ class DtoMappingTest {
         void should_HandleNullEmail() {
             // null email should not throw NPE in compact constructor
             CreateEmployeeRequest request = new CreateEmployeeRequest(
-                    "John", "Doe", null, null,
-                    null, null, null, null);
+                    "John Doe", null, null, null,
+                    null, null, null);
             assertThat(request.email()).isNull();
         }
     }
@@ -174,7 +167,7 @@ class DtoMappingTest {
         void should_NormalizeStatusToUppercase() {
             UpdateEmployeeRequest request = new UpdateEmployeeRequest(
                     null, null, null, null,
-                    null, null, null, null, "active");
+                    null, null, null, "active");
             assertThat(request.status()).isEqualTo("ACTIVE");
         }
 
@@ -182,8 +175,8 @@ class DtoMappingTest {
         @DisplayName("should normalize email to lowercase in update request")
         void should_NormalizeEmailToLowercase() {
             UpdateEmployeeRequest request = new UpdateEmployeeRequest(
-                    null, null, "JOHN@COMPANY.COM", null,
-                    null, null, null, null, null);
+                    null, "JOHN@COMPANY.COM", null, null,
+                    null, null, null, null);
             assertThat(request.email()).isEqualTo("john@company.com");
         }
 
@@ -192,8 +185,8 @@ class DtoMappingTest {
         void should_AllowAllNullFields() {
             UpdateEmployeeRequest request = new UpdateEmployeeRequest(
                     null, null, null, null,
-                    null, null, null, null, null);
-            assertThat(request.firstName()).isNull();
+                    null, null, null, null);
+            assertThat(request.fullName()).isNull();
             assertThat(request.status()).isNull();
         }
     }

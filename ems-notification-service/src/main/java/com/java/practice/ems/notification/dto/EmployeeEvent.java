@@ -1,4 +1,4 @@
-package com.java.practice.ems.kafka;
+package com.java.practice.ems.notification.dto;
 
 import java.math.BigDecimal;
 import java.time.Instant;

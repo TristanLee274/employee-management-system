@@ -2,6 +2,8 @@ package com.java.practice.ems.employee.salary;
 
 import org.springframework.stereotype.Component;
 
+import com.java.practice.ems.employee.entity.Employee;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
@@ -59,12 +61,15 @@ public class CommissionSalaryCalculator implements SalaryCalculator {
      *   net        = 3480 − 382.80 − 17.40 = MYR 3,079.80
      * </pre>
      *
-     * @param baseSalary  the fixed base salary component
-     * @param hoursWorked repurposed: achievement percentage (0.0–100.0)
+     * @param employee the employee instance representing the fixed base salary and
+     *                 achievement percentage
      * @return net monthly take-home pay
      */
     @Override
-    public BigDecimal calculate(BigDecimal baseSalary, double hoursWorked) {
+    public BigDecimal calculate(Employee employee) {
+        BigDecimal baseSalary = employee.getBaseSalary();
+        double hoursWorked = employee.getHoursWorked() != null ? employee.getHoursWorked() : 0.0;
+
         // hoursWorked carries achievementPercentage for this strategy
         double achievementPct = Math.min(100.0, Math.max(0.0, hoursWorked));
 

@@ -2,6 +2,8 @@ package com.java.practice.ems.employee.salary;
 
 import org.springframework.stereotype.Component;
 
+import com.java.practice.ems.employee.entity.Employee;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
@@ -53,12 +55,15 @@ public class HourlySalaryCalculator implements SalaryCalculator {
      * <li>Net = gross − EPF − SOCSO</li>
      * </ol>
      *
-     * @param baseSalary  the hourly pay rate (currency per hour)
-     * @param hoursWorked actual hours worked this month (from timesheet)
+     * @param employee the employee instance containing hourly pay rate and actual
+     *                 hours worked
      * @return net monthly take-home pay
      */
     @Override
-    public BigDecimal calculate(BigDecimal baseSalary, double hoursWorked) {
+    public BigDecimal calculate(Employee employee) {
+        BigDecimal baseSalary = employee.getBaseSalary();
+        double hoursWorked = employee.getHoursWorked() != null ? employee.getHoursWorked() : 0.0;
+
         // ── Step 1: Separate regular and overtime hours ──────────────────────
         double regularHours = Math.min(hoursWorked, OVERTIME_THRESHOLD);
         double overtimeHours = Math.max(0, hoursWorked - OVERTIME_THRESHOLD);

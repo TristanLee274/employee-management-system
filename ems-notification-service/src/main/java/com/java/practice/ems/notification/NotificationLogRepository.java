@@ -30,7 +30,7 @@ public interface NotificationLogRepository extends MongoRepository<NotificationL
      * Spring Data derives the query from the method name automatically.
      * MongoDB query: {@code db.notification_logs.find({employeeId: ?})}
      */
-    List<NotificationLog> findByEmployeeId(Long employeeId);
+    List<NotificationLog> findByEmployeeId(String employeeId);
 
     /**
      * Find all notification logs of a specific event type.

@@ -62,13 +62,10 @@ networks:
     # This is by design — containers are ephemeral and stateless.
     # Volumes separate "stateless compute" from "stateful storage".
     #
-volumes:
-  postgres-data:
-    name: ems-postgres-data
-  mongodb-data:
-    name: ems-mongodb-data
   kafka-data:
     name: ems-kafka-data
+  jenkins-data:
+    name: ems-jenkins-data
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  SERVICES — Container Definitions
@@ -370,3 +367,43 @@ services:
       #   • Kafka consumer group registration
       #   • MongoDB connection and index creation
       #   • Actuator endpoints registration
+
+      # ─────────────────────────────────────────────────────────────────────────────
+      #  SONARQUBE — Static Code Analysis Platform (CI Quality Gate)
+      # ─────────────────────────────────────────────────────────────────────────────
+      #
+      # SonarQube continuously inspects code quality to detect bugs, vulnerabilities, 
+      # and code smells. Included here corresponding to Team CI demands for 6-person teams
+      # maintaining tight Quality Gate constraints matching docs/05_devops_process.md.
+      #
+  sonarqube:
+    image: sonarqube:10.6-community
+    container_name: ems-sonarqube
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: 'true'
+    networks:
+      - ems-network
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  #  JENKINS — Continuous Integration Orchestrator
+  # ─────────────────────────────────────────────────────────────────────────────
+  #
+  # Jenkins reads the Jenkinsfile, running the core Pipeline executing testing, 
+  # packaging, and SonarQube evaluations mapped directly per documentation.
+  #
+  jenkins:
+    image: jenkins/jenkins:lts-jdk21
+    container_name: ems-jenkins
+    restart: unless-stopped
+    ports:
+      - "8081:8080" # Mapping to host 8081 avoiding collision with Spring Boot
+      - "50000:50000"
+    volumes:
+      - jenkins-data:/var/jenkins_home
+      # Mounting Docker socket directly so Jenkins can build images natively via Dockerfile
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - ems-network

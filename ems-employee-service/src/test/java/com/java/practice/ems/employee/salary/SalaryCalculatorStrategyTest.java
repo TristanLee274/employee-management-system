@@ -3,14 +3,11 @@ package com.java.practice.ems.employee.salary;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+
+import com.java.practice.ems.employee.entity.Employee;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -70,7 +67,8 @@ class SalaryCalculatorStrategyTest {
             BigDecimal baseSalary = new BigDecimal("5000.00");
 
             // WHEN: calculate net monthly salary
-            BigDecimal result = calculator.calculate(baseSalary, 0);
+            Employee employee = Employee.builder().baseSalary(baseSalary).hoursWorked(0.0).build();
+            BigDecimal result = calculator.calculate(employee);
 
             // THEN: net = 5000 - (5000 * 0.11) - (5000 * 0.005)
             // = 5000 - 550 - 25 = 4425.00
@@ -86,7 +84,8 @@ class SalaryCalculatorStrategyTest {
         })
         @DisplayName("should calculate correctly for various salaries")
         void should_CalculateCorrectly_ForVariousSalaries(String base, String expected) {
-            BigDecimal result = calculator.calculate(new BigDecimal(base), 0);
+            Employee employee = Employee.builder().baseSalary(new BigDecimal(base)).hoursWorked(0.0).build();
+            BigDecimal result = calculator.calculate(employee);
             assertThat(result).isEqualByComparingTo(expected);
         }
 
@@ -95,8 +94,11 @@ class SalaryCalculatorStrategyTest {
         void should_IgnoreHoursWorked() {
             BigDecimal salary = new BigDecimal("5000.00");
             // Hours worked should NOT affect monthly salary
-            BigDecimal result1 = calculator.calculate(salary, 0);
-            BigDecimal result2 = calculator.calculate(salary, 200);
+            Employee emp1 = Employee.builder().baseSalary(salary).hoursWorked(0.0).build();
+            Employee emp2 = Employee.builder().baseSalary(salary).hoursWorked(200.0).build();
+
+            BigDecimal result1 = calculator.calculate(emp1);
+            BigDecimal result2 = calculator.calculate(emp2);
             assertThat(result1).isEqualByComparingTo(result2);
         }
 
@@ -132,7 +134,8 @@ class SalaryCalculatorStrategyTest {
             BigDecimal hourlyRate = new BigDecimal("50.00");
 
             // WHEN
-            BigDecimal result = calculator.calculate(hourlyRate, 160.0);
+            Employee employee = Employee.builder().baseSalary(hourlyRate).hoursWorked(160.0).build();
+            BigDecimal result = calculator.calculate(employee);
 
             // THEN: gross = 50 * 160 = 8000
             // net = 8000 - (8000 * 0.11) - (8000 * 0.005) = 8000 - 880 - 40 = 7080
@@ -146,7 +149,8 @@ class SalaryCalculatorStrategyTest {
             BigDecimal hourlyRate = new BigDecimal("50.00");
 
             // WHEN
-            BigDecimal result = calculator.calculate(hourlyRate, 180.0);
+            Employee employee = Employee.builder().baseSalary(hourlyRate).hoursWorked(180.0).build();
+            BigDecimal result = calculator.calculate(employee);
 
             // THEN: regular = 50 * 160 = 8000
             // overtime = 50 * 1.5 * 20 = 1500
@@ -158,7 +162,8 @@ class SalaryCalculatorStrategyTest {
         @Test
         @DisplayName("should handle zero hours gracefully")
         void should_ReturnZero_WhenZeroHoursWorked() {
-            BigDecimal result = calculator.calculate(new BigDecimal("50.00"), 0.0);
+            Employee employee = Employee.builder().baseSalary(new BigDecimal("50.00")).hoursWorked(0.0).build();
+            BigDecimal result = calculator.calculate(employee);
             assertThat(result).isEqualByComparingTo("0.00");
         }
 
@@ -195,7 +200,8 @@ class SalaryCalculatorStrategyTest {
             BigDecimal dailyRate = new BigDecimal("200.00");
 
             // WHEN
-            BigDecimal result = calculator.calculate(dailyRate, 0);
+            Employee employee = Employee.builder().baseSalary(dailyRate).hoursWorked(0.0).build();
+            BigDecimal result = calculator.calculate(employee);
 
             // THEN: gross = 200 * 22 = 4400
             // net = 4400 - (4400 * 0.11) - (4400 * 0.005) = 4400 - 484 - 22 = 3894
@@ -209,7 +215,8 @@ class SalaryCalculatorStrategyTest {
             BigDecimal dailyRate = new BigDecimal("200.00");
 
             // WHEN
-            BigDecimal result = calculator.calculate(dailyRate, 80.0);
+            Employee employee = Employee.builder().baseSalary(dailyRate).hoursWorked(80.0).build();
+            BigDecimal result = calculator.calculate(employee);
 
             // THEN: gross = 200 * 10.0 = 2000
             // net = 2000 - (2000 * 0.11) - (2000 * 0.005) = 2000 - 220 - 10 = 1770
@@ -240,7 +247,8 @@ class SalaryCalculatorStrategyTest {
             BigDecimal base = new BigDecimal("3000.00");
 
             // WHEN
-            BigDecimal result = calculator.calculate(base, 80.0);
+            Employee employee = Employee.builder().baseSalary(base).hoursWorked(80.0).build();
+            BigDecimal result = calculator.calculate(employee);
 
             // THEN: commission = 3000 * 0.20 * 0.80 = 480
             // gross = 3000 + 480 = 3480
@@ -253,8 +261,11 @@ class SalaryCalculatorStrategyTest {
         void should_CapAchievementAt100Percent() {
             BigDecimal base = new BigDecimal("3000.00");
             // 150% achievement should be capped to 100%
-            BigDecimal resultCapped = calculator.calculate(base, 150.0);
-            BigDecimal resultMax = calculator.calculate(base, 100.0);
+            Employee emp1 = Employee.builder().baseSalary(base).hoursWorked(150.0).build();
+            Employee emp2 = Employee.builder().baseSalary(base).hoursWorked(100.0).build();
+
+            BigDecimal resultCapped = calculator.calculate(emp1);
+            BigDecimal resultMax = calculator.calculate(emp2);
             assertThat(resultCapped).isEqualByComparingTo(resultMax);
         }
 
@@ -263,8 +274,11 @@ class SalaryCalculatorStrategyTest {
         void should_FloorAchievementAtZeroPercent() {
             BigDecimal base = new BigDecimal("3000.00");
             // -10% achievement should be treated as 0%
-            BigDecimal resultNegative = calculator.calculate(base, -10.0);
-            BigDecimal resultZero = calculator.calculate(base, 0.0);
+            Employee emp1 = Employee.builder().baseSalary(base).hoursWorked(-10.0).build();
+            Employee emp2 = Employee.builder().baseSalary(base).hoursWorked(0.0).build();
+
+            BigDecimal resultNegative = calculator.calculate(emp1);
+            BigDecimal resultZero = calculator.calculate(emp2);
             assertThat(resultNegative).isEqualByComparingTo(resultZero);
         }
 
@@ -272,7 +286,8 @@ class SalaryCalculatorStrategyTest {
         @DisplayName("should return net base salary when achievement is 0%")
         void should_ReturnNetBaseSalary_WhenZeroAchievement() {
             BigDecimal base = new BigDecimal("3000.00");
-            BigDecimal result = calculator.calculate(base, 0.0);
+            Employee employee = Employee.builder().baseSalary(base).hoursWorked(0.0).build();
+            BigDecimal result = calculator.calculate(employee);
             // commission = 0, gross = 3000, net = 3000 - 330 - 15 = 2655
             assertThat(result).isEqualByComparingTo("2655.00");
         }

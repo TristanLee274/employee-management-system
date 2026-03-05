@@ -2,6 +2,8 @@ package com.java.practice.ems.employee.salary;
 
 import org.springframework.stereotype.Component;
 
+import com.java.practice.ems.employee.entity.Employee;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
@@ -48,13 +50,14 @@ public class DailySalaryCalculator implements SalaryCalculator {
      * {@code STANDARD_WORK_DAYS} to provide a reasonable estimate.
      * </p>
      *
-     * @param baseSalary  the daily pay rate
-     * @param hoursWorked used to derive days worked (hoursWorked / 8); 0 = full
-     *                    month
+     * @param employee the employee instance
      * @return net monthly take-home pay
      */
     @Override
-    public BigDecimal calculate(BigDecimal baseSalary, double hoursWorked) {
+    public BigDecimal calculate(Employee employee) {
+        BigDecimal baseSalary = employee.getBaseSalary();
+        double hoursWorked = employee.getHoursWorked() != null ? employee.getHoursWorked() : 0.0;
+
         // Derive days worked from hours (standard 8-hour working day)
         BigDecimal daysWorked = hoursWorked > 0
                 ? BigDecimal.valueOf(hoursWorked / 8.0).setScale(1, RoundingMode.HALF_UP)

@@ -15,14 +15,14 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 @ResponseStatus(HttpStatus.NOT_FOUND)
 public class EmployeeNotFoundException extends RuntimeException {
 
-    private final Long employeeId;
+    private final String employeeId;
 
-    public EmployeeNotFoundException(Long employeeId) {
+    public EmployeeNotFoundException(String employeeId) {
         super("Employee not found with id: " + employeeId);
         this.employeeId = employeeId;
     }
 
-    public Long getEmployeeId() {
+    public String getEmployeeId() {
         return employeeId;
     }
 }

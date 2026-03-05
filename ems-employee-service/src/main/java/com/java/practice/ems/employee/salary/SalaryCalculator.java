@@ -1,5 +1,7 @@
 package com.java.practice.ems.employee.salary;
 
+import com.java.practice.ems.employee.entity.Employee;
+
 import java.math.BigDecimal;
 
 /**
@@ -115,13 +117,10 @@ public interface SalaryCalculator {
      * days/month</li>
      * </ul>
      *
-     * @param baseSalary  the employee's base salary rate (never null, must be
-     *                    positive)
-     * @param hoursWorked actual hours worked this period (relevant for
-     *                    hourly/contract types)
+     * @param employee the employee instance to calculate salary for (never null)
      * @return the computed monthly salary amount, never null
      */
-    BigDecimal calculate(BigDecimal baseSalary, double hoursWorked);
+    BigDecimal calculate(Employee employee);
 
     /**
      * Returns the employment type identifier this strategy handles.

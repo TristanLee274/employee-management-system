@@ -2,6 +2,8 @@ package com.java.practice.ems.employee.salary;
 
 import org.springframework.stereotype.Component;
 
+import com.java.practice.ems.employee.entity.Employee;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
@@ -49,12 +51,13 @@ public class MonthlySalaryCalculator implements SalaryCalculator {
      * they receive a fixed rate regardless of hours (unless overtime applies).
      * </p>
      *
-     * @param baseSalary  the fixed monthly salary amount
-     * @param hoursWorked ignored for monthly employees
+     * @param employee the employee to calculate salary for
      * @return net monthly take-home after mandatory deductions
      */
     @Override
-    public BigDecimal calculate(BigDecimal baseSalary, double hoursWorked) {
+    public BigDecimal calculate(Employee employee) {
+        BigDecimal baseSalary = employee.getBaseSalary();
+
         // Mandatory employee statutory deductions
         BigDecimal epfDeduction = baseSalary.multiply(EPF_EMPLOYEE_RATE);
         BigDecimal socsoDeduction = baseSalary.multiply(SOCSO_RATE);

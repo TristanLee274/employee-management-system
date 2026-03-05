@@ -105,8 +105,20 @@
 	<groupId>com.java.practice</groupId>
 	<artifactId>employee-management-system</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<!-- JAR packaging: see header comments for cloud-native rationale -->
-	<packaging>jar</packaging>
+	<!-- POM packaging for multi-module project -->
+	<packaging>pom</packaging>
+
+	<modules>
+		<module>ems-common</module>
+		<module>ems-gateway</module>
+		<module>ems-employee-service</module>
+		<module>ems-department-service</module>
+		<module>ems-project-service</module>
+		<module>ems-notification-service</module>
+		<module>ems-audit-service</module>
+		<module>ems-config-server</module>
+		<module>ems-discovery-server</module>
+	</modules>
 
 	<name>Antigravity-EMS</name>
 	<description>

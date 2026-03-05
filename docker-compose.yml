@@ -1,0 +1,372 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  Antigravity-EMS — Docker Compose Full Ecosystem                           ║
+# ║  PostgreSQL + Kafka + MongoDB + Spring Boot Application                    ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+#  WHAT THIS FILE DOES
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#  One command to start the entire Antigravity-EMS ecosystem:
+#
+#    docker compose up -d
+#
+#  This spins up 5 containers:
+#
+#    ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+#    │  PostgreSQL  │      │  MongoDB    │      │   Kafka     │
+#    │  Port: 5432  │      │  Port: 27017│      │  Port: 9092 │
+#    │  (employees) │      │  (events)   │      │  (streaming)│
+#    └──────┬───────┘      └──────┬──────┘      └──────┬──────┘
+#           │                     │                     │
+#           └─────────┬──────────┴──────────┬──────────┘
+#                     │                     │
+#               ┌─────┴─────┐        ┌─────┴─────┐
+#               │  EMS App  │        │ Zookeeper │
+#               │ Port: 8080│        │ Port: 2181│
+#               └───────────┘        └───────────┘
+#
+#  WHY DOCKER COMPOSE?
+#  • Developers run `docker compose up` and get the EXACT same environment
+#    as staging/production — no "install PostgreSQL manually" instructions
+#  • New team members are productive in minutes, not hours
+#  • Reproducible: works the same on macOS, Linux, and Windows (with WSL2)
+#
+
+version: '3.9'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  NETWORKS — Isolated Communication
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Docker networks provide DNS-based service discovery:
+# the EMS app connects to "postgres" (hostname), not "192.168.x.x" (IP).
+# If PostgreSQL restarts with a different IP, the hostname still resolves.
+#
+networks:
+  ems-network:
+    driver: bridge
+    # Bridge network: containers can communicate with each other by service
+    # name (e.g., http://postgres:5432) but are isolated from other
+    # Docker Compose projects on the same host.
+
+    # ═══════════════════════════════════════════════════════════════════════════════
+    #  VOLUMES — Persistent Data Storage
+    # ═══════════════════════════════════════════════════════════════════════════════
+    #
+    # Named volumes persist data across container restarts:
+    #   docker compose down    → containers stop, data PRESERVED
+    #   docker compose down -v → containers stop, data DELETED
+    #
+    # Without volumes, all data is lost when a container stops.
+    # This is by design — containers are ephemeral and stateless.
+    # Volumes separate "stateless compute" from "stateful storage".
+    #
+volumes:
+  postgres-data:
+    name: ems-postgres-data
+  mongodb-data:
+    name: ems-mongodb-data
+  kafka-data:
+    name: ems-kafka-data
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  SERVICES — Container Definitions
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  #  POSTGRESQL — Relational Database for Employee Data
+  # ─────────────────────────────────────────────────────────────────────────────
+  #
+  # PostgreSQL stores structured, transactional data:
+  #   • Employee records (CRUD operations)
+  #   • ACID compliance for salary updates and status changes
+  #   • Complex queries with JOINs (employee + department)
+  #   • Full-text search for employee search functionality
+  #
+  postgres:
+    image: postgres:17-alpine
+    # Alpine variant: ~80MB vs ~400MB for the full image.
+    # PostgreSQL 17: latest LTS with improved partitioning and performance.
+    container_name: ems-postgres
+    restart: unless-stopped
+    # unless-stopped: auto-restart on crash, but stay stopped if manually
+    # stopped with `docker compose stop`. Critical for development stability.
+
+    environment:
+      # PostgreSQL initialization variables
+      POSTGRES_DB: antigravity_ems
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      # PGDATA: specifies where PostgreSQL stores data files inside the container.
+      # Mapping this to a volume ensures data survives container recreation.
+      PGDATA: /var/lib/postgresql/data/pgdata
+
+    ports:
+      - "5432:5432"
+      # Host port 5432 → Container port 5432
+      # Allows tools like pgAdmin, DBeaver, or IntelliJ DB tools to connect
+      # directly for development and debugging.
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Named volume persists database files across container restarts.
+      # The data directory contains: WAL files, table data, indexes, configs.
+
+    networks:
+      - ems-network
+
+    healthcheck:
+      # pg_isready: PostgreSQL's built-in health check utility.
+      # Returns 0 if the database accepts connections, 1 otherwise.
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d antigravity_ems" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  #  MONGODB — NoSQL Database for Event Logs & Notifications
+  # ─────────────────────────────────────────────────────────────────────────────
+  #
+  # MongoDB stores semi-structured, append-heavy event data:
+  #   • NotificationLog documents (EMPLOYEE_CREATED, EMPLOYEE_UPDATED events)
+  #   • Schema-flexible: each event type can have different fields
+  #   • TTL indexes auto-delete logs older than 90 days
+  #   • Write-optimized for high-throughput event logging
+  #
+  # WHY SEPARATE FROM POSTGRESQL?
+  #   PostgreSQL excels at: ACID transactions, JOINs, complex queries
+  #   MongoDB excels at: schema flexibility, write throughput, TTL expiration
+  #   Using both = polyglot persistence (right tool for each job)
+  #
+  mongodb:
+    image: mongo:7-jammy
+    # MongoDB 7 on Ubuntu Jammy (22.04 LTS): latest stable version
+    # with improved aggregation pipeline and sharding capabilities.
+    container_name: ems-mongodb
+    restart: unless-stopped
+
+    environment:
+      # MongoDB initialization — creates the database on first startup
+      MONGO_INITDB_DATABASE: antigravity_ems_events
+
+    ports:
+      - "27017:27017"
+      # Allows MongoDB Compass or mongosh to connect directly for debugging.
+
+    volumes:
+      - mongodb-data:/data/db
+      # Persist MongoDB data files (collections, indexes, journal).
+
+    networks:
+      - ems-network
+
+    healthcheck:
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  #  ZOOKEEPER — Kafka Cluster Coordination
+  # ─────────────────────────────────────────────────────────────────────────────
+  #
+  # ZooKeeper manages Kafka cluster metadata:
+  #   • Topic configurations (partitions, replication factor)
+  #   • Broker registration and leader election
+  #   • Consumer group offset tracking (older versions)
+  #
+  # NOTE: Kafka is moving away from ZooKeeper dependency (KRaft mode in Kafka 3.5+).
+  # For production, consider KRaft mode for simpler deployment.
+  # ZooKeeper is used here for compatibility and simplicity.
+  #
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.7.0
+    container_name: ems-zookeeper
+    restart: unless-stopped
+
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      # TICK_TIME: ZooKeeper's basic time unit in milliseconds.
+      # Used for heartbeats and session timeouts.
+      # 2000ms is the default and works well for development.
+
+    ports:
+      - "2181:2181"
+
+    networks:
+      - ems-network
+
+    healthcheck:
+      test: [ "CMD-SHELL", "echo 'ruok' | nc localhost 2181" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  #  KAFKA — Event Streaming Platform
+  # ─────────────────────────────────────────────────────────────────────────────
+  #
+  # Kafka is the backbone of our event-driven architecture:
+  #   • EmployeeEventProducer publishes events to "employee.events" topic
+  #   • EmployeeEventConsumer consumes events and writes to MongoDB
+  #   • Future consumers (email, analytics, audit) can subscribe independently
+  #
+  # WHY KAFKA (not RabbitMQ or Redis Streams)?
+  #   • DURABILITY: Events are persisted to disk with configurable retention.
+  #     If the consumer crashes, events are NOT lost — they're replayed.
+  #   • ORDERING: Events within a partition are strictly ordered.
+  #     Employee events are keyed by employeeId → all events for one employee
+  #     are processed in order (important for status transitions).
+  #   • SCALABILITY: Add more partitions for parallel processing.
+  #     Add more consumers to the same group for horizontal scaling.
+  #   • REPLAY: Need to rebuild a read model? Reset the consumer offset to
+  #     the beginning and replay ALL events. RabbitMQ deletes messages after
+  #     delivery — no replay possible.
+  #
+  kafka:
+    image: confluentinc/cp-kafka:7.7.0
+    container_name: ems-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+        # condition: service_healthy ensures Kafka only starts AFTER ZooKeeper
+        # is ready. Without this, Kafka might start before ZooKeeper is
+        # accepting connections → Kafka fails to register → crash loop.
+
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # DNS-based service discovery: "zookeeper" resolves to the ZooKeeper
+      # container's IP within the Docker network.
+
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # ADVERTISED_LISTENERS:
+      #   • PLAINTEXT://kafka:9092 → used by containers INSIDE the Docker network
+      #     (e.g., the EMS app connects to "kafka:9092")
+      #   • PLAINTEXT_HOST://localhost:29092 → used by tools on the HOST machine
+      #     (e.g., Kafka CLI tools, IDE plugins)
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # Replication factor: 1 for development (single broker).
+      # In production, use 3 for durability across broker failures.
+
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      # Auto-create topics when a producer first publishes to them.
+      # Convenient for development; disable in production where topics
+      # should be pre-created with specific partition counts.
+
+    ports:
+      - "29092:29092"
+      # Host-accessible port for development tools.
+      # The EMS app (inside Docker) uses port 9092 via the internal network.
+
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+    networks:
+      - ems-network
+
+    healthcheck:
+      test: [ "CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  #  EMS APPLICATION — Spring Boot Microservice
+  # ─────────────────────────────────────────────────────────────────────────────
+  #
+  # The Antigravity-EMS application container:
+  #   • Connects to PostgreSQL for employee CRUD
+  #   • Connects to MongoDB for notification logging
+  #   • Connects to Kafka for event streaming
+  #   • Exposes REST API on port 8080
+  #   • Provides Swagger UI at /api/swagger-ui.html
+  #   • Provides health checks at /api/actuator/health
+  #
+  ems-app:
+    build:
+      # Build the Docker image using the Dockerfile in the project root.
+      # This triggers the multi-stage build defined above.
+      context: .
+      dockerfile: Dockerfile
+    image: antigravity-ems:latest
+    container_name: ems-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      # depends_on with health conditions ensures the app ONLY starts
+      # after ALL infrastructure services are healthy. Without this,
+      # Spring Boot would try to connect to PostgreSQL during startup,
+      # fail (Postgres isn't ready yet), and enter a crash loop.
+
+    environment:
+      # ── Spring Profile ────────────────────────────────────────────────
+      SPRING_PROFILES_ACTIVE: docker
+      # Activates application-docker.yml (if it exists) for Docker-specific
+      # overrides. Falls back to the base application.yml.
+
+      # ── PostgreSQL Connection ─────────────────────────────────────────
+      DB_URL: jdbc:postgresql://postgres:5432/antigravity_ems
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      # "postgres" hostname resolves to the postgres container via Docker DNS.
+      # No hardcoded IPs — containers can restart with new IPs and it still works.
+
+      # ── JPA Configuration ─────────────────────────────────────────────
+      JPA_DDL_AUTO: update
+      # "update" for Docker dev environment: auto-creates/alters tables.
+      # In production K8s: use "validate" + Flyway migrations.
+
+      # ── MongoDB Connection ────────────────────────────────────────────
+      MONGODB_URI: mongodb://mongodb:27017/antigravity_ems_events
+      # "mongodb" hostname → Docker DNS → MongoDB container
+
+      # ── Kafka Connection ──────────────────────────────────────────────
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # "kafka:9092" → Docker internal network → Kafka container
+
+      # ── JWT Configuration ─────────────────────────────────────────────
+      JWT_SECRET: my-super-secret-key-that-must-be-at-least-256-bits-long-for-HS256
+      JWT_EXPIRATION: 86400000
+
+      # ── JVM Memory (container-aware) ──────────────────────────────────
+      JAVA_OPTS: >-
+        -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0
+
+    ports:
+      - "8080:8080"
+      # Maps host port 8080 to container port 8080.
+      # Access the API at: http://localhost:8080/api/employees
+      # Access Swagger UI at: http://localhost:8080/api/swagger-ui.html
+
+    networks:
+      - ems-network
+
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/api/actuator/health || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+      # start_period: 60s gives Spring Boot enough time to initialize:
+      #   • JPA schema validation/update
+      #   • Kafka consumer group registration
+      #   • MongoDB connection and index creation
+      #   • Actuator endpoints registration

@@ -1,0 +1,39 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  .dockerignore — Exclude files from Docker build context                   ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+#
+# When you run `docker build`, Docker sends the entire directory (build context)
+# to the Docker daemon. Excluding unnecessary files:
+#   • Reduces build context size (faster uploads to daemon)
+#   • Prevents sensitive files (.env, secrets) from leaking into images
+#   • Avoids cache invalidation from irrelevant file changes
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode
+.idea
+*.iml
+
+# Build output (we build inside Docker, not from host target/)
+target/
+
+# Documentation (not needed in the image)
+docs/
+*.md
+LICENSE
+
+# Docker files (prevent recursive context)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Environment files with secrets
+.env
+.env.*
+
+# CI/CD configuration
+Jenkinsfile

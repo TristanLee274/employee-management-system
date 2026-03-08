@@ -239,7 +239,7 @@ spring:
       properties:
         # Trust our application's package for JSON deserialization
         # Without this, Spring Kafka rejects deserialization for security
-        '[spring.json.trusted.packages]': com.java.practice.ems.*
+        '[spring.json.trusted.packages]': com.ems.employee.*
 
   # ═════════════════════════════════════════════════════════════════════════════
   #  SECURITY — Spring Security & OAuth2 Resource Server
@@ -366,7 +366,7 @@ springdoc:
 logging:
   level:
     # Application root — INFO for production, DEBUG for development
-    '[com.java.practice.ems]': ${LOG_LEVEL_APP:INFO}
+    '[com.ems.employee]': ${LOG_LEVEL_APP:INFO}
 
     # Spring Security — useful for debugging auth issues
     '[org.springframework.security]': ${LOG_LEVEL_SECURITY:WARN}
